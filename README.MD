@@ -1,4 +1,4 @@
-
+![alt text](ec86996c-71a6-4d9f-a66f-921ce43f4af9.jpeg)
 ---
 
 # 🧠 NeoDex — Your Offline AI File Assistant
