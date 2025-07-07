@@ -1,0 +1,16 @@
+# rust-core/Cargo.toml
+[package]
+name = "rust-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+walkdir = "2.4"
+notify = "8.1.0"
+chrono = "0.4"
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono"] }
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
+dirs = "6.0.0"
+indicatif = "0.18.0"
+
+

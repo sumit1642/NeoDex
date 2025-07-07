@@ -1,0 +1,7 @@
+/target
+.venv
+exported_files.json
+projectstructre.md
+test.py
+python-core/query/__pycache__
+python-core/embeddings/__pycache__
