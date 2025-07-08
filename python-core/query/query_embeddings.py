@@ -1,3 +1,4 @@
+# python-core/query/query_embeddings.py
 from sentence_transformers import SentenceTransformer
 import chromadb
 from config import EMBED_MODEL_NAME, CHROMA_COLLECTION_NAME
