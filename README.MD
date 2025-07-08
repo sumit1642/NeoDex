@@ -67,11 +67,3 @@ python3 query_embeddings.py "All text files that contain the word stupid"
 
 ---
 
-## 📝 Notes
-
-* First Rust scan stores all your files' metadata in SQLite and skips folders listed in `blacklisted_folders.txt`.
-* Embedding generation takes time — don’t kill it mid-process unless you want broken vectors.
-* NeoDex is **modular** — Rust handles indexing, Python handles embeddings & querying.
-
----
-
