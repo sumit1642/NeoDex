@@ -1,3 +1,4 @@
+// rust-core/src/skipcompare.rs
 use std::{
     collections::HashSet,
     fs,

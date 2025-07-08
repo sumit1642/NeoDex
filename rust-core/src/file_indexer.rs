@@ -1,3 +1,4 @@
+// rust-core/src/file_indexer.rs
 use indicatif::{ProgressBar, ProgressStyle};
 use sqlx::SqlitePool;
 use std::{

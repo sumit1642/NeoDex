@@ -1,3 +1,4 @@
+// rust-core/src/main.rs
 mod file_indexer;
 mod skipcompare;
 
