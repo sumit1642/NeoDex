@@ -75,4 +75,3 @@ python3 query_embeddings.py "All text files that contain the word stupid"
 
 ---
 
-Want this version saved as your new README? I can dump it into a file.
