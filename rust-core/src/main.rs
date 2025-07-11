@@ -1,6 +1,7 @@
 // rust-core/src/main.rs
 mod file_indexer;
 mod skipcompare;
+mod incremental;
 
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::{error::Error, fs, path::Path, str::FromStr};
@@ -21,9 +22,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     file_indexer::init_db(&pool).await?;
 
-    let scan_path = file_indexer::get_scan_path(&pool).await?;
-    file_indexer::scan_and_store(&pool, scan_path).await?;
+    let scan_path = match file_indexer::get_scan_path(&pool).await {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("❌ Error getting scan path: {}", e);
+            return Err(e);
+        }
+    };
+    
+    // Ask user if they want incremental scan
+    println!("🔍 Do you want an incremental scan? (y/n)");
+    print!("> ");
+    std::io::Write::flush(&mut std::io::stdout())?;
+    
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let incremental = input.trim().eq_ignore_ascii_case("y");
+    
+    if incremental {
+        println!("🔄 Running incremental scan...");
+    } else {
+        println!("🔄 Running full scan...");
+    }
+    
+    match file_indexer::scan_and_store(&pool, scan_path, incremental).await {
+        Ok(()) => {
+            println!("✅ File scan complete. Data saved to '{}'.", db_path);
+        }
+        Err(e) => {
+            eprintln!("❌ Error during scan: {}", e);
+            return Err(e);
+        }
+    }
 
-    println!("✅ File scan complete. Data saved to '{}'.", db_path);
     Ok(())
 }

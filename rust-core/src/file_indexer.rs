@@ -12,8 +12,9 @@ use tokio::fs;
 use walkdir::WalkDir;
 
 use crate::skipcompare::{is_blacklisted, load_blacklisted_folders};
+use crate::incremental::needs_rescan;
 
-/// Format file permissions into rwxr-xr-- style (Unix-only)
+/// Format file permissions for both Unix and Windows
 fn format_permissions(metadata: &Metadata) -> String {
     #[cfg(unix)]
     {
@@ -31,7 +32,16 @@ fn format_permissions(metadata: &Metadata) -> String {
         }
         result
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let readonly = metadata.permissions().readonly();
+        if readonly {
+            "r--r--r--".to_string()
+        } else {
+            "rw-rw-rw-".to_string()
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         "n/a".to_string()
     }
@@ -51,7 +61,7 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            path TEXT NOT NULL,
+            path TEXT NOT NULL UNIQUE,
             filename TEXT NOT NULL,
             filetype TEXT NOT NULL,
             size INTEGER,
@@ -112,18 +122,45 @@ async fn prompt_and_save_path(pool: &SqlitePool) -> Result<PathBuf, Box<dyn std:
     io::stdin().read_line(&mut path)?;
     let trimmed = path.trim();
 
+    // Validate path exists and is a directory
+    let path_buf = PathBuf::from(trimmed);
+    if !path_buf.exists() {
+        return Err(format!("Path does not exist: {}", trimmed).into());
+    }
+    if !path_buf.is_dir() {
+        return Err(format!("Path is not a directory: {}", trimmed).into());
+    }
+
     sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan_path', ?)")
         .bind(trimmed)
         .execute(pool)
         .await?;
 
-    Ok(PathBuf::from(trimmed))
+    Ok(path_buf)
+}
+
+/// Update last scan timestamp in settings
+pub async fn update_last_scan_time(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    sqlx::query(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('last_scan_time', ?)"
+    )
+    .bind(now.to_string())
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 /// Walk directory, collect metadata, and insert into database
 pub async fn scan_and_store<P: AsRef<Path>>(
     pool: &SqlitePool,
     dir: P,
+    incremental: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dir = dir.as_ref();
     println!("📂 Scanning directory: {}", dir.display());
@@ -147,12 +184,32 @@ pub async fn scan_and_store<P: AsRef<Path>>(
 
     for entry in entries {
         let path = entry.path();
-        let fullpath = path.to_string_lossy().to_string();
-        let filename = entry.file_name().to_string_lossy().to_string();
-        let filetype = "file".to_string();
+        // Use consistent path separators across platforms
+        let fullpath = path.to_string_lossy().replace('\\', "/");
 
         match fs::metadata(path).await {
             Ok(metadata) => {
+                // Skip if incremental scan and file hasn't changed
+                if incremental {
+                    if let Ok(file_modified) = metadata.modified() {
+                        match needs_rescan(pool, &fullpath, file_modified).await {
+                            Ok(false) => {
+                                bar.inc(1);
+                                continue;
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️  Error checking file {}: {}", fullpath, e);
+                                // Continue processing the file if we can't check
+                            }
+                            Ok(true) => {
+                                // File needs to be rescanned, continue processing
+                            }
+                        }
+                    }
+                }
+
+                let filename = entry.file_name().to_string_lossy().to_string();
+                let filetype = "file".to_string();
                 let size = metadata.len() as i64;
                 let permissions = format_permissions(&metadata);
                 let created = to_unix_timestamp(metadata.created());
@@ -160,7 +217,7 @@ pub async fn scan_and_store<P: AsRef<Path>>(
 
                 sqlx::query(
                     r#"
-                    INSERT INTO files (
+                    INSERT OR REPLACE INTO files (
                         path, filename, filetype, size, permissions, created, modified, content
                     )
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)
@@ -185,6 +242,8 @@ pub async fn scan_and_store<P: AsRef<Path>>(
         bar.inc(1);
     }
 
+    // Update scan time after completion
+    update_last_scan_time(pool).await?;
     bar.finish_with_message("✅ Scan complete");
     Ok(())
 }
